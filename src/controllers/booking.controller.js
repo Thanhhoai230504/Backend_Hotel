@@ -3,7 +3,15 @@ import Room from "../models/Room.js";
 
 export const createBooking = async (req, res) => {
   try {
-    const { roomId, checkIn, checkOut } = req.body;
+    const { 
+      roomId, 
+      checkIn, 
+      checkOut, 
+      fullName,    
+      phoneNumber, 
+      email,       
+      notes        
+    } = req.body;
 
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
@@ -65,17 +73,22 @@ export const createBooking = async (req, res) => {
     );
     const totalPrice = days * room.price;
 
-    // Create booking
+    // Create booking with new fields
     const booking = await Booking.create({
       user: req.user._id,
       room: roomId,
+      fullName,    
+      phoneNumber, 
+      email,       
+      notes,       
       checkIn: checkInDate,
       checkOut: checkOutDate,
       totalPrice,
-      status: "confirmed", // Set initial status as confirmed
+      status: "confirmed",
     });
 
     await Room.findByIdAndUpdate(roomId, { isAvailable: false });
+    
     // Check and update room availability for rooms with ended bookings
     const endedBookings = await Booking.find({
       status: "confirmed",
@@ -83,18 +96,17 @@ export const createBooking = async (req, res) => {
     });
 
     for (const endedBooking of endedBookings) {
-      // Check if there are any active bookings for this room
       const activeBookings = await Booking.findOne({
         room: endedBooking.room,
         status: "confirmed",
         checkOut: { $gt: new Date() },
       });
 
-      // If no active bookings exist, set room to available
       if (!activeBookings) {
         await Room.findByIdAndUpdate(endedBooking.room, { isAvailable: true });
       }
     }
+
     // Populate booking with user and room details
     const populatedBooking = await Booking.findById(booking._id)
       .populate({
@@ -179,9 +191,18 @@ export const updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-
-    // Fields that are allowed to be updated
-    const allowedUpdates = ["checkIn", "checkOut", "status", "paymentStatus"];
+   
+    // Add the new fields to allowed updates
+    const allowedUpdates = [
+      "checkIn", 
+      "checkOut", 
+      "status", 
+      "paymentStatus",
+      "fullName",   
+      "phoneNumber",
+      "email"    ,
+      "notes"   
+    ];
     const updateFields = {};
 
     // Filter out invalid update fields
@@ -190,6 +211,7 @@ export const updateBooking = async (req, res) => {
         updateFields[key] = updates[key];
       }
     });
+   
 
     // Validate status if it's being updated
     if (updates.status) {
@@ -205,12 +227,34 @@ export const updateBooking = async (req, res) => {
 
     // Validate paymentStatus if it's being updated
     if (updates.paymentStatus) {
-      const validPaymentStatuses = ["pending", "completed", "failed"];
+      const validPaymentStatuses = ["pending", "paid", "failed"];
       if (!validPaymentStatuses.includes(updates.paymentStatus)) {
         return res.status(400).json({
           success: false,
           message:
             "Invalid payment status. Payment status must be one of: pending, completed, failed",
+        });
+      }
+    }
+
+    // Validate email format if it's being updated
+    if (updates.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(updates.email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid email format",
+        });
+      }
+    }
+
+    // Validate phone number if it's being updated
+    if (updates.phoneNumber) {
+      const phoneRegex = /^[0-9]{10,}$/;
+      if (!phoneRegex.test(updates.phoneNumber)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid phone number format. Must be at least 10 digits",
         });
       }
     }
@@ -285,6 +329,7 @@ export const updateBooking = async (req, res) => {
     });
   }
 };
+
 
 // export const updateBookingStatus = async (req, res) => {
 //   try {
