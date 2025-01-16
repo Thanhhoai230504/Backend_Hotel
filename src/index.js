@@ -9,7 +9,7 @@ import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import roomRoutes from './routes/room.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
-
+import paymentRoutes from './routes/payment.routes.js';
 dotenv.config();
 
 const app = express();
@@ -24,6 +24,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
