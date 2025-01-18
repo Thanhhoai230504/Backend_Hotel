@@ -23,7 +23,7 @@ router.post("/create-payment", async (req, res) => {
       redirecturl: "http://localhost:3001/MyBookings",
       orderId: orderId,
       callbackurl:
-        "https://006e-2402-800-6210-ab66-803b-ad9d-f13b-d5f9.ngrok-free.app/api/payments/callback",
+        "https://299e-2402-800-6210-ab66-b989-9f16-2a8a-5978.ngrok-free.app/api/payments/callback",
     };
 
     const items = [
@@ -50,7 +50,7 @@ router.post("/create-payment", async (req, res) => {
       description: `Nội dung thanh toán: ${orderId}: ${description}`,
       bank_code: "zalopayapp",
       callback_url:
-        "https://006e-2402-800-6210-ab66-803b-ad9d-f13b-d5f9.ngrok-free.app/api/payments/callback",
+        "https://299e-2402-800-6210-ab66-b989-9f16-2a8a-5978.ngrok-free.app/api/payments/callback",
     };
 
     const data =
