@@ -51,7 +51,7 @@ router.post("/create-payment", async (req, res) => {
       description: `Nội dung thanh toán: ${orderId}: ${description}`,
       bank_code: "zalopayapp",
       callback_url:
-        "https://66a3-2402-800-6210-ab66-3092-7eb2-3f09-39ed.ngrok-free.app/api/payments/callback",
+        "https://backend-hotel-1-nqtn.onrender.com/api/payments/callback",
     };
 
     const data =
