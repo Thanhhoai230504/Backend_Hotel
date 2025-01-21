@@ -20,10 +20,11 @@ router.post("/create-payment", async (req, res) => {
 
     const embeddata = {
       merchantinfo: "ZaloPay Merchant",
-      redirecturl: "https://front-end-hotel-lxfb-git-master-thanhhoais-projects-7a359260.vercel.app/MyBookings",
+      redirecturl:
+        "https://front-end-hotel-lxfb-git-master-thanhhoais-projects-7a359260.vercel.app/MyBookings",
       orderId: orderId,
       callbackurl:
-        "https://66a3-2402-800-6210-ab66-3092-7eb2-3f09-39ed.ngrok-free.app/api/payments/callback",
+        "https://backend-hotel-1-nqtn.onrender.com/api/payments/callback",
     };
 
     const items = [
