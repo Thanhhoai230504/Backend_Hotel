@@ -20,10 +20,10 @@ router.post("/create-payment", async (req, res) => {
 
     const embeddata = {
       merchantinfo: "ZaloPay Merchant",
-      redirecturl: "http://localhost:3001/MyBookings",
+      redirecturl: "https://front-end-hotel-lxfb-git-master-thanhhoais-projects-7a359260.vercel.app/MyBookings",
       orderId: orderId,
       callbackurl:
-        "https://299e-2402-800-6210-ab66-b989-9f16-2a8a-5978.ngrok-free.app/api/payments/callback",
+        "https://66a3-2402-800-6210-ab66-3092-7eb2-3f09-39ed.ngrok-free.app/api/payments/callback",
     };
 
     const items = [
@@ -50,7 +50,7 @@ router.post("/create-payment", async (req, res) => {
       description: `Nội dung thanh toán: ${orderId}: ${description}`,
       bank_code: "zalopayapp",
       callback_url:
-        "https://299e-2402-800-6210-ab66-b989-9f16-2a8a-5978.ngrok-free.app/api/payments/callback",
+        "https://66a3-2402-800-6210-ab66-3092-7eb2-3f09-39ed.ngrok-free.app/api/payments/callback",
     };
 
     const data =
