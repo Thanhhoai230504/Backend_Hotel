@@ -3,15 +3,8 @@ import Room from "../models/Room.js";
 
 export const createBooking = async (req, res) => {
   try {
-    const { 
-      roomId, 
-      checkIn, 
-      checkOut, 
-      fullName,    
-      phoneNumber, 
-      email,       
-      notes        
-    } = req.body;
+    const { roomId, checkIn, checkOut, fullName, phoneNumber, email, notes } =
+      req.body;
 
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
@@ -77,10 +70,10 @@ export const createBooking = async (req, res) => {
     const booking = await Booking.create({
       user: req.user._id,
       room: roomId,
-      fullName,    
-      phoneNumber, 
-      email,       
-      notes,       
+      fullName,
+      phoneNumber,
+      email,
+      notes,
       checkIn: checkInDate,
       checkOut: checkOutDate,
       totalPrice,
@@ -88,7 +81,7 @@ export const createBooking = async (req, res) => {
     });
 
     await Room.findByIdAndUpdate(roomId, { isAvailable: false });
-    
+
     // Check and update room availability for rooms with ended bookings
     const endedBookings = await Booking.find({
       status: "confirmed",
@@ -191,17 +184,17 @@ export const updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-   
+
     // Add the new fields to allowed updates
     const allowedUpdates = [
-      "checkIn", 
-      "checkOut", 
-      "status", 
+      "checkIn",
+      "checkOut",
+      "status",
       "paymentStatus",
-      "fullName",   
+      "fullName",
       "phoneNumber",
-      "email"    ,
-      "notes"   
+      "email",
+      "notes",
     ];
     const updateFields = {};
 
@@ -211,7 +204,6 @@ export const updateBooking = async (req, res) => {
         updateFields[key] = updates[key];
       }
     });
-   
 
     // Validate status if it's being updated
     if (updates.status) {
@@ -330,7 +322,6 @@ export const updateBooking = async (req, res) => {
   }
 };
 
-
 // export const updateBookingStatus = async (req, res) => {
 //   try {
 //     const { id } = req.params;
@@ -387,7 +378,7 @@ export const updateBooking = async (req, res) => {
 export const deleteBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
-    
+
     if (!booking) {
       return res.status(404).json({
         success: false,
@@ -431,4 +422,183 @@ export const deleteBooking = async (req, res) => {
   }
 };
 
+export const getBookingStatistics = async (req, res) => {
+  try {
+    // Get current date and set to start of day
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
+    // Get start of week (Sunday)
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+
+    // Get start of month
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // Get statistics for today with payment status
+    const todayStats = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: today },
+          status: { $ne: "cancelled" },
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentStatus",
+          totalBookings: { $sum: 1 },
+          totalRevenue: { $sum: "$totalPrice" },
+        },
+      },
+    ]);
+
+    // Get statistics for this week with payment status
+    const weekStats = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startOfWeek },
+          status: { $ne: "cancelled" },
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentStatus",
+          totalBookings: { $sum: 1 },
+          totalRevenue: { $sum: "$totalPrice" },
+        },
+      },
+    ]);
+
+    // Get statistics for this month with payment status
+    const monthStats = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startOfMonth },
+          status: { $ne: "cancelled" },
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentStatus",
+          totalBookings: { $sum: 1 },
+          totalRevenue: { $sum: "$totalPrice" },
+        },
+      },
+    ]);
+
+    // Get daily statistics for the current month (for chart data)
+    const dailyStats = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startOfMonth },
+          status: { $ne: "cancelled" },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            paymentStatus: "$paymentStatus",
+          },
+          bookings: { $sum: 1 },
+          revenue: { $sum: "$totalPrice" },
+        },
+      },
+      {
+        $sort: { "_id.date": 1 },
+      },
+    ]);
+
+    // Process statistics by payment status
+    const processStats = (stats) => {
+      const paid = stats.find((stat) => stat._id === "paid") || {
+        totalBookings: 0,
+        totalRevenue: 0,
+      };
+      const pending = stats.find((stat) => stat._id === "pending") || {
+        totalBookings: 0,
+        totalRevenue: 0,
+      };
+      const failed = stats.find((stat) => stat._id === "failed") || {
+        totalBookings: 0,
+        totalRevenue: 0,
+      };
+
+      return {
+        totalBookings:
+          paid.totalBookings + pending.totalBookings + failed.totalBookings,
+        totalRevenue:
+          paid.totalRevenue + pending.totalRevenue + failed.totalRevenue,
+        paid: {
+          bookings: paid.totalBookings,
+          revenue: paid.totalRevenue,
+        },
+        pending: {
+          bookings: pending.totalBookings,
+          revenue: pending.totalRevenue,
+        },
+        failed: {
+          bookings: failed.totalBookings,
+          revenue: failed.totalRevenue,
+        },
+      };
+    };
+
+    // Process daily stats
+    const processedDailyStats = dailyStats.reduce((acc, stat) => {
+      const date = stat._id.date;
+      if (!acc[date]) {
+        acc[date] = {
+          date,
+          bookings: 0,
+          revenue: 0,
+          paidBookings: 0,
+          paidRevenue: 0,
+          pendingBookings: 0,
+          pendingRevenue: 0,
+          failedBookings: 0,
+          failedRevenue: 0,
+        };
+      }
+
+      switch (stat._id.paymentStatus) {
+        case "paid":
+          acc[date].paidBookings = stat.bookings;
+          acc[date].paidRevenue = stat.revenue;
+          break;
+        case "pending":
+          acc[date].pendingBookings = stat.bookings;
+          acc[date].pendingRevenue = stat.revenue;
+          break;
+        case "failed":
+          acc[date].failedBookings = stat.bookings;
+          acc[date].failedRevenue = stat.revenue;
+          break;
+      }
+
+      acc[date].bookings += stat.bookings;
+      acc[date].revenue += stat.revenue;
+
+      return acc;
+    }, {});
+
+    // Format response
+    const response = {
+      today: processStats(todayStats),
+      thisWeek: processStats(weekStats),
+      thisMonth: processStats(monthStats),
+      dailyStats: Object.values(processedDailyStats),
+    };
+
+    res.json({
+      success: true,
+      data: response,
+    });
+  } catch (error) {
+    console.error("Error getting booking statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
