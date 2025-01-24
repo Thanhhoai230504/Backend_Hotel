@@ -602,3 +602,90 @@ export const getBookingStatistics = async (req, res) => {
     });
   }
 };
+
+export const cancelBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+  
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Check if the booking belongs to the user
+    if (booking.user.toString() !== userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to cancel this booking",
+      });
+    }
+
+    // Check if booking is already cancelled
+    if (booking.status === "cancelled") {
+      return res.status(400).json({
+        success: false,
+        message: "This booking is already cancelled",
+      });
+    }
+
+    // Check if check-in date has passed
+    if (new Date(booking.checkIn) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot cancel a booking after check-in date",
+      });
+    }
+
+    // Update booking status to cancelled
+    booking.status = "cancelled";
+    await booking.save();
+
+    // Update room availability
+    const roomId = booking.room;
+    const activeBookings = await Booking.findOne({
+      room: roomId,
+      status: "confirmed",
+      $or: [
+        {
+          checkIn: { $lte: new Date() },
+          checkOut: { $gte: new Date() },
+        },
+      ],
+    });
+
+    if (!activeBookings) {
+      await Room.findByIdAndUpdate(roomId, { isAvailable: true });
+    }
+
+    // Return cancelled booking with populated fields
+    const cancelledBooking = await Booking.findById(id)
+      .populate("room")
+      .populate("user", "firstName lastName email");
+
+    res.json({
+      success: true,
+      message: "Booking cancelled successfully",
+      data: cancelledBooking,
+    });
+  } catch (error) {
+    // Handle invalid ObjectId format
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID format",
+      });
+    }
+
+    console.error("Error cancelling booking:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
