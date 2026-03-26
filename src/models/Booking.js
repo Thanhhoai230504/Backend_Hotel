@@ -24,6 +24,12 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    guests: {
+      type: Number,
+      required: true,
+      min: 1,
+      default: 1,
+    },
     notes: {
       type: String,
       default: "",
@@ -42,7 +48,7 @@ const bookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled"],
+      enum: ["pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"],
       default: "pending",
     },
     paymentStatus: {

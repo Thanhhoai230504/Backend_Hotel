@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, authorize } from '../middleware/auth.js';
 import {
   deleteUserById,
   getAllUsers,
@@ -12,12 +12,13 @@ const router = express.Router();
 
 router.use(protect);
 
-
-
-router.get('/', getAllUsers);
+// User routes
 router.get('/profile', getProfile);
 router.put('/profile', updateProfile);
-router.put('/:userId', updateUserById);
-router.delete('/:userId', deleteUserById);
+
+// Admin only routes
+router.get('/', authorize('admin'), getAllUsers);
+router.put('/:userId', authorize('admin'), updateUserById);
+router.delete('/:userId', authorize('admin'), deleteUserById);
 
 export default router;

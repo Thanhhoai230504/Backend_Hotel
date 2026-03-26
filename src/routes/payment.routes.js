@@ -2,9 +2,10 @@ import express from "express";
 import crypto from "crypto";
 import moment from "moment";
 import axios from "axios";
+import qs from "qs";
 import { config } from "../config/zalopay.js";
 import Booking from "../models/Booking.js";
-import qs from "qs";
+
 const router = express.Router();
 
 router.post("/create-payment", async (req, res) => {
@@ -18,12 +19,14 @@ router.post("/create-payment", async (req, res) => {
       });
     }
 
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3001";
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:3000";
+
     const embeddata = {
       merchantinfo: "ZaloPay Merchant",
-      redirecturl: "https://front-end-hotel-lxfb.vercel.app/MyBookings",
+      redirecturl: `${frontendUrl}/MyBookings`,
       orderId: orderId,
-      callbackurl:
-        "https://backend-hotel-1-nqtn.onrender.com/api/payments/callback",
+      callbackurl: `${backendUrl}/api/payments/callback`,
     };
 
     const items = [
@@ -49,8 +52,7 @@ router.post("/create-payment", async (req, res) => {
       amount: amount,
       description: `Nội dung thanh toán: ${orderId}: ${description}`,
       bank_code: "zalopayapp",
-      callback_url:
-        "https://backend-hotel-1-nqtn.onrender.com/api/payments/callback",
+      callback_url: `${backendUrl}/api/payments/callback`,
     };
 
     const data =
@@ -94,130 +96,6 @@ router.post("/create-payment", async (req, res) => {
   }
 });
 
-// router.post("/callback", async (req, res) => {
-//   try {
-//     if (!req.body.data) {
-//       console.error("No data received in callback");
-//       return res.status(400).json({
-//         return_code: -1,
-//         return_message: "missing data",
-//       });
-//     }
-
-//     // Parse callback data
-//     const callbackData = JSON.parse(req.body.data);
-
-//     // Tính MAC theo chuẩn của ZaloPay - Sửa lại cách tính MAC
-//     const mac = crypto
-//       .createHmac("sha256", config.key2)
-//       .update(req.body.data)
-//       .digest("hex");
-
-//     if (mac !== req.body.mac) {
-//       console.log("MAC verification failed");
-//       return res.status(400).json({
-//         return_code: -1,
-//         return_message: "mac not equal",
-//       });
-//     }
-
-//     // Chỉ xử lý khi type = 1 (thanh toán thành công)
-//     if (req.body.type === 1) {
-//       try {
-//         // Lấy orderId từ embed_data
-//         const embedData = JSON.parse(callbackData.embed_data);
-
-//         const orderId = embedData.orderId;
-
-//         if (!orderId) {
-//           console.error("OrderId not found in embed_data");
-//           throw new Error("OrderId not found in callback data");
-//         }
-
-//         // Verify orderId format
-//         if (!orderId.match(/^[0-9a-fA-F]{24}$/)) {
-//           console.error("Invalid orderId format:", orderId);
-//           throw new Error("Invalid OrderId format");
-//         }
-
-//         // Update booking status
-//         const updatedBooking = await Booking.findByIdAndUpdate(
-//           orderId,
-//           {
-//             paymentStatus: "paid",
-//             updatedAt: new Date(),
-//             zpTransactionId: callbackData.zp_trans_id,
-//           },
-//           { new: true, runValidators: true }
-//         );
-
-//         if (!updatedBooking) {
-//           console.error("Booking not found with ID:", orderId);
-//           return res.json({
-//             return_code: 1,
-//             return_message: "success",
-//           });
-//         }
-//       } catch (error) {
-//         console.error("Error processing payment callback:", error);
-//         console.error("Error stack:", error.stack);
-//         return res.json({
-//           return_code: 1,
-//           return_message: "success",
-//         });
-//       }
-//     }
-
-//     return res.json({
-//       return_code: 1,
-//       return_message: "success",
-//     });
-//   } catch (error) {
-//     console.error("Payment callback error:", error);
-//     console.error("Error stack:", error.stack);
-//     return res.status(500).json({
-//       return_code: -1,
-//       return_message: "internal server error",
-//     });
-//   }
-// });
-
-// router.post("/order-status/:app_trans_id", async (req, res) => {
-//   try {
-//     const app_trans_id = req.params.app_trans_id;
-//     const postData = {
-//       app_id: config.app_id,
-//       app_trans_id: app_trans_id,
-//     };
-
-//     const data =
-//       postData.app_id + "|" + postData.app_trans_id + "|" + config.key1;
-//     postData.mac = crypto
-//       .createHmac("sha256", config.key1)
-//       .update(data)
-//       .digest("hex");
-
-//     const postConfig = {
-//       method: "post",
-//       url: "https://sb-openapi.zalopay.vn/v2/query",
-//       headers: {
-//         "Content-Type": "application/x-www-form-urlencoded",
-//       },
-//       data: qs.stringify(postData),
-//     };
-
-//     const result = await axios(postConfig);
-//     return res.status(200).json(result.data);
-//   } catch (error) {
-//     console.error("Error checking order status:", error.message);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to check order status",
-//       error: error.message,
-//     });
-//   }
-// });
-
 router.post("/callback", async (req, res) => {
   try {
     if (!req.body.data) {
@@ -257,12 +135,13 @@ router.post("/callback", async (req, res) => {
           throw new Error("Invalid OrderId format");
         }
 
+        // Thanh toán thành công → cập nhật paymentStatus = "paid" VÀ status = "confirmed"
         const updatedBooking = await Booking.findByIdAndUpdate(
           orderId,
           {
             paymentStatus: "paid",
+            status: "confirmed",
             updatedAt: new Date(),
-            zpTransactionId: callbackData.zp_trans_id,
           },
           { new: true, runValidators: true }
         );
@@ -317,7 +196,6 @@ router.post("/order-status/:app_trans_id", async (req, res) => {
     const result = await axios(postConfig);
 
     let orderId = null;
-    // Safely parse embed_data if it exists
     if (result.data.embed_data) {
       try {
         const embedData = JSON.parse(result.data.embed_data);
@@ -327,36 +205,25 @@ router.post("/order-status/:app_trans_id", async (req, res) => {
       }
     }
 
-    // If payment is successful (return_code = 1)
+    // Thanh toán thành công (return_code = 1)
     if (result.data.return_code === 1) {
       if (orderId) {
         await Booking.findByIdAndUpdate(
           orderId,
           {
             paymentStatus: "paid",
+            status: "confirmed",
             updatedAt: new Date(),
-            zpTransactionId: result.data.zp_trans_id,
-            amount: result.data.amount,
-            discountAmount: result.data.discount_amount || 0,
           },
           { new: true, runValidators: true }
         );
       }
     }
-    // If payment is still processing (return_code = 3 or is_processing = true)
+    // Thanh toán đang xử lý (return_code = 3) → giữ status pending
     else if (result.data.return_code === 3 || result.data.is_processing) {
-      if (orderId) {
-        await Booking.findByIdAndUpdate(
-          orderId,
-          {
-            paymentStatus: "processing",
-            updatedAt: new Date(),
-          },
-          { new: true, runValidators: true }
-        );
-      }
+      // Không thay đổi - giữ paymentStatus: "pending"
     }
-    // If payment failed (return_code = 2)
+    // Thanh toán thất bại (return_code = 2)
     else if (result.data.return_code === 2) {
       if (orderId) {
         await Booking.findByIdAndUpdate(
@@ -364,8 +231,6 @@ router.post("/order-status/:app_trans_id", async (req, res) => {
           {
             paymentStatus: "failed",
             updatedAt: new Date(),
-            paymentError:
-              result.data.sub_return_message || result.data.return_message,
           },
           { new: true, runValidators: true }
         );
@@ -396,4 +261,5 @@ router.post("/order-status/:app_trans_id", async (req, res) => {
     });
   }
 });
+
 export default router;

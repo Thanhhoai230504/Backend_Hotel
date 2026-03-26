@@ -1,9 +1,10 @@
 import Booking from "../models/Booking.js";
 import Room from "../models/Room.js";
 
+// Tạo booking mới - status mặc định là "pending"
 export const createBooking = async (req, res) => {
   try {
-    const { roomId, checkIn, checkOut, fullName, phoneNumber, email, notes } =
+    const { roomId, checkIn, checkOut, fullName, phoneNumber, email, notes, guests } =
       req.body;
 
     const checkInDate = new Date(checkIn);
@@ -17,7 +18,6 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Validate check-in is before check-out
     if (checkInDate >= checkOutDate) {
       return res.status(400).json({
         success: false,
@@ -25,7 +25,7 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // Check if room exists and is available
+    // Check if room exists
     const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({
@@ -34,23 +34,20 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    if (!room.isAvailable) {
+    // Validate guest count vs room capacity
+    if (guests && guests > room.capacity) {
       return res.status(400).json({
         success: false,
-        message: "This room is not available for booking",
+        message: `Number of guests (${guests}) exceeds room capacity (${room.capacity})`,
       });
     }
 
     // Check for existing bookings in the requested date range
     const existingBooking = await Booking.findOne({
       room: roomId,
-      status: { $ne: "cancelled" }, // Exclude cancelled bookings
-      $or: [
-        {
-          checkIn: { $lt: checkOutDate },
-          checkOut: { $gt: checkInDate },
-        },
-      ],
+      status: { $nin: ["cancelled", "checked_out"] },
+      checkIn: { $lt: checkOutDate },
+      checkOut: { $gt: checkInDate },
     });
 
     if (existingBooking) {
@@ -66,7 +63,7 @@ export const createBooking = async (req, res) => {
     );
     const totalPrice = days * room.price;
 
-    // Create booking with new fields
+    // Create booking - status: "pending" (chờ thanh toán/xác nhận)
     const booking = await Booking.create({
       user: req.user._id,
       room: roomId,
@@ -74,31 +71,12 @@ export const createBooking = async (req, res) => {
       phoneNumber,
       email,
       notes,
+      guests: guests || 1,
       checkIn: checkInDate,
       checkOut: checkOutDate,
       totalPrice,
-      status: "confirmed",
+      status: "pending",
     });
-
-    await Room.findByIdAndUpdate(roomId, { isAvailable: false });
-
-    // Check and update room availability for rooms with ended bookings
-    const endedBookings = await Booking.find({
-      status: "confirmed",
-      checkOut: { $lt: new Date() },
-    });
-
-    for (const endedBooking of endedBookings) {
-      const activeBookings = await Booking.findOne({
-        room: endedBooking.room,
-        status: "confirmed",
-        checkOut: { $gt: new Date() },
-      });
-
-      if (!activeBookings) {
-        await Room.findByIdAndUpdate(endedBooking.room, { isAvailable: true });
-      }
-    }
 
     // Populate booking with user and room details
     const populatedBooking = await Booking.findById(booking._id)
@@ -124,22 +102,18 @@ export const createBooking = async (req, res) => {
   }
 };
 
+// Admin: Lấy tất cả bookings (có phân trang)
 export const getAllBookings = async (req, res) => {
   try {
-    // Lấy thông tin phân trang từ query params, đặt giá trị mặc định nếu không có
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-
-    // Tính toán giá trị skip
     const skip = (page - 1) * limit;
 
-    // Đếm tổng số booking
     const totalBookings = await Booking.countDocuments();
 
-    // Lấy danh sách booking với phân trang
     const bookings = await Booking.find()
       .populate("room")
-      .populate("user", "firstName lastName email")
+      .populate("user", "name email")
       .sort("-createdAt")
       .skip(skip)
       .limit(limit);
@@ -162,6 +136,7 @@ export const getAllBookings = async (req, res) => {
   }
 };
 
+// User: Lấy bookings của mình
 export const getUserBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ user: req.user._id })
@@ -180,12 +155,12 @@ export const getUserBookings = async (req, res) => {
   }
 };
 
+// Admin: Cập nhật booking
 export const updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
 
-    // Add the new fields to allowed updates
     const allowedUpdates = [
       "checkIn",
       "checkOut",
@@ -195,41 +170,41 @@ export const updateBooking = async (req, res) => {
       "phoneNumber",
       "email",
       "notes",
+      "guests",
     ];
     const updateFields = {};
 
-    // Filter out invalid update fields
     Object.keys(updates).forEach((key) => {
       if (allowedUpdates.includes(key)) {
         updateFields[key] = updates[key];
       }
     });
 
-    // Validate status if it's being updated
+    // Validate status
     if (updates.status) {
-      const validStatuses = ["pending", "confirmed", "cancelled"];
+      const validStatuses = ["pending", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"];
       if (!validStatuses.includes(updates.status)) {
         return res.status(400).json({
           success: false,
           message:
-            "Invalid status. Status must be one of: pending, confirmed, cancelled",
+            "Invalid status. Must be one of: pending, confirmed, checked_in, checked_out, cancelled, no_show",
         });
       }
     }
 
-    // Validate paymentStatus if it's being updated
+    // Validate paymentStatus
     if (updates.paymentStatus) {
       const validPaymentStatuses = ["pending", "paid", "failed"];
       if (!validPaymentStatuses.includes(updates.paymentStatus)) {
         return res.status(400).json({
           success: false,
           message:
-            "Invalid payment status. Payment status must be one of: pending, completed, failed",
+            "Invalid payment status. Must be one of: pending, paid, failed",
         });
       }
     }
 
-    // Validate email format if it's being updated
+    // Validate email format
     if (updates.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(updates.email)) {
@@ -240,7 +215,7 @@ export const updateBooking = async (req, res) => {
       }
     }
 
-    // Validate phone number if it's being updated
+    // Validate phone number
     if (updates.phoneNumber) {
       const phoneRegex = /^[0-9]{10,}$/;
       if (!phoneRegex.test(updates.phoneNumber)) {
@@ -266,15 +241,11 @@ export const updateBooking = async (req, res) => {
       const checkOut = updates.checkOut || booking.checkOut;
 
       const existingBooking = await Booking.findOne({
-        _id: { $ne: id }, // exclude current booking
+        _id: { $ne: id },
         room: booking.room,
-        status: "confirmed",
-        $or: [
-          {
-            checkIn: { $lte: checkOut },
-            checkOut: { $gte: checkIn },
-          },
-        ],
+        status: { $nin: ["cancelled", "checked_out"] },
+        checkIn: { $lt: new Date(checkOut) },
+        checkOut: { $gt: new Date(checkIn) },
       });
 
       if (existingBooking) {
@@ -307,7 +278,6 @@ export const updateBooking = async (req, res) => {
       data: updatedBooking,
     });
   } catch (error) {
-    // Handle invalid ObjectId format
     if (error.name === "CastError") {
       return res.status(400).json({
         success: false,
@@ -322,59 +292,7 @@ export const updateBooking = async (req, res) => {
   }
 };
 
-// export const updateBookingStatus = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { status } = req.body;
-
-//     // Validate status
-//     const validStatuses = ['pending', 'confirmed', 'cancelled'];
-//     if (!validStatuses.includes(status)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Invalid status. Status must be one of: pending, confirmed, cancelled'
-//       });
-//     }
-
-//     // Check if booking exists
-//     const booking = await Booking.findById(id);
-//     if (!booking) {
-//       return res.status(404).json({
-//         success: false,
-//         message: `No booking found with ID: ${id}`
-//       });
-//     }
-
-//     // Update status
-//     booking.status = status;
-//     await booking.save();
-
-//     // Return updated booking with populated fields
-//     const updatedBooking = await Booking.findById(id)
-//       .populate('room')
-//       .populate('user', 'name email');
-
-//     res.json({
-//       success: true,
-//       message: `Booking status updated to ${status}`,
-//       data: updatedBooking
-//     });
-//   } catch (error) {
-//     // Handle invalid ObjectId format
-//     if (error.name === 'CastError') {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Invalid booking ID format'
-//       });
-//     }
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
+// Admin: Xóa booking
 export const deleteBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -386,28 +304,7 @@ export const deleteBooking = async (req, res) => {
       });
     }
 
-    // Lưu roomId từ booking trước khi xóa
-    const roomId = booking.room;
-
-    // Xóa booking
     await Booking.findByIdAndDelete(req.params.id);
-
-    // Kiểm tra xem còn booking nào khác cho phòng này không
-    const otherBookings = await Booking.findOne({
-      room: roomId,
-      status: { $ne: "cancelled" },
-      $or: [
-        {
-          checkIn: { $lte: new Date() },
-          checkOut: { $gte: new Date() },
-        },
-      ],
-    });
-
-    // Nếu không còn booking nào khác, cập nhật isAvailable thành true
-    if (!otherBookings) {
-      await Room.findByIdAndUpdate(roomId, { isAvailable: true });
-    }
 
     res.json({
       success: true,
@@ -422,25 +319,22 @@ export const deleteBooking = async (req, res) => {
   }
 };
 
+// Thống kê booking
 export const getBookingStatistics = async (req, res) => {
   try {
-    // Get current date and set to start of day
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get start of week (Sunday)
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay());
 
-    // Get start of month
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    // Get statistics for today with payment status
     const todayStats = await Booking.aggregate([
       {
         $match: {
           createdAt: { $gte: today },
-          status: { $ne: "cancelled" },
+          status: { $nin: ["cancelled", "no_show"] },
         },
       },
       {
@@ -452,12 +346,11 @@ export const getBookingStatistics = async (req, res) => {
       },
     ]);
 
-    // Get statistics for this week with payment status
     const weekStats = await Booking.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfWeek },
-          status: { $ne: "cancelled" },
+          status: { $nin: ["cancelled", "no_show"] },
         },
       },
       {
@@ -469,12 +362,11 @@ export const getBookingStatistics = async (req, res) => {
       },
     ]);
 
-    // Get statistics for this month with payment status
     const monthStats = await Booking.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfMonth },
-          status: { $ne: "cancelled" },
+          status: { $nin: ["cancelled", "no_show"] },
         },
       },
       {
@@ -486,12 +378,11 @@ export const getBookingStatistics = async (req, res) => {
       },
     ]);
 
-    // Get daily statistics for the current month (for chart data)
     const dailyStats = await Booking.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfMonth },
-          status: { $ne: "cancelled" },
+          status: { $nin: ["cancelled", "no_show"] },
         },
       },
       {
@@ -509,7 +400,6 @@ export const getBookingStatistics = async (req, res) => {
       },
     ]);
 
-    // Process statistics by payment status
     const processStats = (stats) => {
       const paid = stats.find((stat) => stat._id === "paid") || {
         totalBookings: 0,
@@ -544,7 +434,6 @@ export const getBookingStatistics = async (req, res) => {
       };
     };
 
-    // Process daily stats
     const processedDailyStats = dailyStats.reduce((acc, stat) => {
       const date = stat._id.date;
       if (!acc[date]) {
@@ -582,7 +471,6 @@ export const getBookingStatistics = async (req, res) => {
       return acc;
     }, {});
 
-    // Format response
     const response = {
       today: processStats(todayStats),
       thisWeek: processStats(weekStats),
@@ -603,12 +491,12 @@ export const getBookingStatistics = async (req, res) => {
   }
 };
 
+// User: Hủy booking (chỉ khi chưa check-in)
 export const cancelBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user._id;
 
-  
     const booking = await Booking.findById(id);
 
     if (!booking) {
@@ -634,6 +522,14 @@ export const cancelBooking = async (req, res) => {
       });
     }
 
+    // Cannot cancel if already checked in or checked out
+    if (["checked_in", "checked_out"].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot cancel a booking that has been checked in or checked out",
+      });
+    }
+
     // Check if check-in date has passed
     if (new Date(booking.checkIn) < new Date()) {
       return res.status(400).json({
@@ -646,27 +542,10 @@ export const cancelBooking = async (req, res) => {
     booking.status = "cancelled";
     await booking.save();
 
-    // Update room availability
-    const roomId = booking.room;
-    const activeBookings = await Booking.findOne({
-      room: roomId,
-      status: "confirmed",
-      $or: [
-        {
-          checkIn: { $lte: new Date() },
-          checkOut: { $gte: new Date() },
-        },
-      ],
-    });
-
-    if (!activeBookings) {
-      await Room.findByIdAndUpdate(roomId, { isAvailable: true });
-    }
-
     // Return cancelled booking with populated fields
     const cancelledBooking = await Booking.findById(id)
       .populate("room")
-      .populate("user", "firstName lastName email");
+      .populate("user", "name email");
 
     res.json({
       success: true,
@@ -674,7 +553,6 @@ export const cancelBooking = async (req, res) => {
       data: cancelledBooking,
     });
   } catch (error) {
-    // Handle invalid ObjectId format
     if (error.name === "CastError") {
       return res.status(400).json({
         success: false,
@@ -687,5 +565,177 @@ export const cancelBooking = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+// Admin: Xác nhận booking (pending → confirmed)
+export const confirmBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    if (booking.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot confirm booking with status: ${booking.status}. Only pending bookings can be confirmed.`,
+      });
+    }
+
+    booking.status = "confirmed";
+    await booking.save();
+
+    const confirmedBooking = await Booking.findById(id)
+      .populate("room")
+      .populate("user", "name email");
+
+    res.json({
+      success: true,
+      message: "Booking confirmed successfully",
+      data: confirmedBooking,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID format",
+      });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Check-in (confirmed → checked_in)
+export const checkInBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    if (booking.status !== "confirmed") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot check in booking with status: ${booking.status}. Only confirmed bookings can be checked in.`,
+      });
+    }
+
+    booking.status = "checked_in";
+    await booking.save();
+
+    const updatedBooking = await Booking.findById(id)
+      .populate("room")
+      .populate("user", "name email");
+
+    res.json({
+      success: true,
+      message: "Guest checked in successfully",
+      data: updatedBooking,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID format",
+      });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Check-out (checked_in → checked_out)
+export const checkOutBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    if (booking.status !== "checked_in") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot check out booking with status: ${booking.status}. Only checked-in bookings can be checked out.`,
+      });
+    }
+
+    booking.status = "checked_out";
+    await booking.save();
+
+    const updatedBooking = await Booking.findById(id)
+      .populate("room")
+      .populate("user", "name email");
+
+    res.json({
+      success: true,
+      message: "Guest checked out successfully",
+      data: updatedBooking,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID format",
+      });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Đánh dấu no-show
+export const noShowBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    if (!["pending", "confirmed"].includes(booking.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot mark no-show for booking with status: ${booking.status}`,
+      });
+    }
+
+    booking.status = "no_show";
+    await booking.save();
+
+    const updatedBooking = await Booking.findById(id)
+      .populate("room")
+      .populate("user", "name email");
+
+    res.json({
+      success: true,
+      message: "Booking marked as no-show",
+      data: updatedBooking,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID format",
+      });
+    }
+    res.status(500).json({ success: false, message: error.message });
   }
 };

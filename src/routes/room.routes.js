@@ -6,14 +6,18 @@ import {
   getRoomById,
   updateRoom,
   deleteRoom,
-  searchAvailableRooms
+  searchAvailableRooms,
+  getBookedDates,
+  getRoomOccupancy
 } from '../controllers/room.controller.js';
 
 const router = express.Router();
 
 router.get('/available', searchAvailableRooms); 
+router.get('/occupancy', getRoomOccupancy);
 router.get('/', getRooms);
 router.get('/:id', getRoomById);
+router.get('/:id/booked-dates', getBookedDates);
 
 // Admin only routes
 router.use(protect, authorize('admin'));

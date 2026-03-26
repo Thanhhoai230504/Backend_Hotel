@@ -8,6 +8,12 @@ export const createRoom = async (req, res) => {
       data: room
     });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: `Phòng số "${req.body.number}" đã tồn tại. Vui lòng dùng số phòng khác.`
+      });
+    }
     res.status(500).json({
       success: false,
       message: error.message
@@ -166,7 +172,6 @@ export const searchAvailableRooms = async (req, res) => {
     // Build query for available rooms
     let query = {
       _id: { $nin: bookedRooms }, // Exclude booked rooms
-      isAvailable: true
     };
 
     // Add capacity filter if provided
@@ -199,6 +204,70 @@ export const searchAvailableRooms = async (req, res) => {
       success: false,
       message: 'Error searching for available rooms',
       error: error.message
+    });
+  }
+};
+
+// Lấy danh sách ngày đã đặt của 1 phòng
+export const getBookedDates = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const bookings = await Booking.find({
+      room: id,
+      status: { $nin: ['cancelled', 'no_show', 'checked_out'] },
+    }).select('checkIn checkOut');
+
+    // Trả về mảng các khoảng ngày đã đặt
+    const bookedRanges = bookings.map(b => ({
+      checkIn: b.checkIn,
+      checkOut: b.checkOut,
+    }));
+
+    res.json({
+      success: true,
+      data: bookedRanges,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Lấy trạng thái sử dụng phòng hiện tại (dựa trên booking)
+export const getRoomOccupancy = async (req, res) => {
+  try {
+    const now = new Date();
+
+    // Tìm tất cả booking đang active (confirmed hoặc checked_in) có ngày hiện tại nằm trong khoảng checkIn-checkOut
+    const activeBookings = await Booking.find({
+      status: { $in: ['confirmed', 'checked_in', 'pending'] },
+      checkIn: { $lte: now },
+      checkOut: { $gte: now },
+    }).select('room status');
+
+    // Tạo map roomId -> status
+    const occupancyMap = {};
+    activeBookings.forEach(booking => {
+      // Ưu tiên: checked_in > confirmed > pending
+      const currentStatus = occupancyMap[booking.room.toString()];
+      if (!currentStatus ||
+          (booking.status === 'checked_in') ||
+          (booking.status === 'confirmed' && currentStatus !== 'checked_in')) {
+        occupancyMap[booking.room.toString()] = booking.status;
+      }
+    });
+
+    res.json({
+      success: true,
+      data: occupancyMap,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
